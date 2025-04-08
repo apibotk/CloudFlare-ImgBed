@@ -1,9 +1,16 @@
 import sentryPlugin from "@cloudflare/pages-plugin-sentry";
 import '@sentry/tracing';
+import { fetchOthersConfig } from "./sysConfig";
+
+let disableTelemetry = false;
 
 export async function errorHandling(context) {
+  // 读取KV中的设置
+  const othersConfig = await fetchOthersConfig(context.env);
+  disableTelemetry = !othersConfig.telemetry.enabled;
+
   const env = context.env;
-  if (typeof env.disable_telemetry == "undefined" || env.disable_telemetry == null || env.disable_telemetry == "") {
+  if (!disableTelemetry) {
     context.data.telemetry = true;
     let remoteSampleRate = 0.001;
     try {
@@ -14,7 +21,6 @@ export async function errorHandling(context) {
       }
     } catch (e) { console.log(e) }
     const sampleRate = env.sampleRate || remoteSampleRate;
-    console.log("sampleRate", sampleRate);
     return sentryPlugin({
       dsn: "https://44b7b443108ec6d298044b125ff89d28@o4507644548022272.ingest.us.sentry.io/4507644555100160",
       tracesSampleRate: sampleRate,
@@ -23,9 +29,13 @@ export async function errorHandling(context) {
   return context.next();
 }
 
-export function telemetryData(context) {
+export async function telemetryData(context) {
   const env = context.env;
-  if (typeof env.disable_telemetry == "undefined" || env.disable_telemetry == null || env.disable_telemetry == "") {
+  // 读取KV中的设置
+  const othersConfig = await fetchOthersConfig(context.env);
+  disableTelemetry = !othersConfig.telemetry.enabled;
+  
+  if (!disableTelemetry) {
     try {
       const parsedHeaders = {};
       context.request.headers.forEach((value, key) => {
