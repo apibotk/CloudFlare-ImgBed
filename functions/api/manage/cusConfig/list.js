@@ -1,3 +1,5 @@
+import { readIndex } from "../../../utils/indexManager";
+
 export async function onRequest(context) {
     // Contents of context object
     const {
@@ -17,14 +19,10 @@ export async function onRequest(context) {
     start = Math.max(0, start);  // start 不能小于 0
     count = Math.max(1, count);  // count 不能小于 1
 
-    let allRecords = [];
+    const allRecords = await readIndex(context, { count: -1, includeSubdirFiles: true });
 
-    allRecords = await getAllRecords(env);
+    const dealedData = dealByIP(allRecords.files);
 
-    // 按照 IP 分组
-    const dealedData = await dealByIP(allRecords);
-
-    // 按照分组中的count倒序排序
     dealedData.sort((a, b) => {
         return b.count - a.count;
     });
@@ -39,47 +37,26 @@ export async function onRequest(context) {
 }
 
 
-async function getAllRecords(env) {
-    let recordsFetched = 0;
-    let allRecords = [];
-    let cursor = null;
+function dealByIP(data) {
+    const groups = new Map();
 
-    while (true) {
-        const limit = 1000; // 读取所需的最少数量
-        const response = await env.img_url.list({ limit, cursor });
+    for (const item of data) {
+        const ip = item.metadata?.UploadIP;
+        if (!ip) continue;
 
-        // 过滤掉以 "manage@" 开头的 key
-        const filteredRecords = response.keys.filter(item => !item.name.startsWith("manage@"));
-
-        allRecords.push(...filteredRecords);
-        recordsFetched += filteredRecords.length;
-        cursor = response.cursor;
-
-        if (!cursor) {
-            break;
+        const group = groups.get(ip);
+        if (group) {
+            group.count++;
+            continue;
         }
+
+        groups.set(ip, {
+            ip,
+            address: item.metadata?.UploadAddress || '未知',
+            count: 1,
+        });
     }
 
-    return allRecords;
-}
-
-async function dealByIP(data) {
-    let dealedData = [];
-    let ipSet = new Set();
-
-    data.forEach(item => {
-        if (item.metadata?.UploadIP) {
-            ipSet.add(item.metadata.UploadIP);
-        }
-    });
-
-    ipSet.forEach(async ip => {
-        let ipData = data.filter(item => item.metadata?.UploadIP === ip);
-        let count = ipData.length;
-        let address = ipData[0].metadata?.UploadAddress || '未知';
-        dealedData.push({ip, address, count, data: ipData});
-    });
-
-    return dealedData;
+    return Array.from(groups.values());
 }
 
